@@ -109,8 +109,7 @@ class Model(nn.Module):
         self.camera_position = nn.Parameter(torch.from_numpy(np.array([3.0, 6.9, 2.5], dtype=np.float32)).to(meshes.device))
 
     def forward(self):
-        R = look_at_rotation(self.camera_position[None, :], device=self.device) #(1,3,3)
-        T = -torch.bmm(R.transpose(1, 2), self.camera_position[None, :, None])[:, :, 0] # (1, 3)
+        R, T = look_at_view_transform(self.camera_position[0], self.camera_position[1], self.camera_position[2], device=device)
         image = self.renderer(meshes_world=self.meshes.clone(), R=R, T=T)
         loss = torch.sum((image[..., 3] - self.image_ref) ** 2)
         return loss, image
@@ -129,8 +128,7 @@ plt.close()
 
 # train
 for i in range(0, 200):
-    if i % 10 == 0:
-        print(f'i = {i}')
+    print(f'i = {i}')
     optimizer.zero_grad()
     loss, _ = model()
     loss.backward()
@@ -139,16 +137,15 @@ for i in range(0, 200):
     if loss.item() < 500:
         break
 
-    if i % 50 == 0:
-        R = look_at_rotation(model.camera_position[None, :], device=model.device)
-        T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]
+    if i % 10 == 0:
+        R, T = look_at_view_transform(model.camera_position[0], model.camera_position[1], model.camera_position[2], device=device)
         image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
         image = image[0, ..., :3].detach().squeeze().cpu().numpy()
         image = img_as_ubyte(image)
 
         plt.figure()
         plt.imshow(image[..., :3])
-        plt.title("iter: %d, loss %0.2f" % (i, loss.data))
+        plt.title("iter: %d, loss %0.2f (dist=%0.2f, elev=%0.2f, azim=%0.2f)" % (i, loss.data, model.camera_position[0], model.camera_position[1], model.camera_position[2]))
         plt.axis("off")
         plt.savefig(os.path.join(output_dir, f'fitting_{i}.png'))
         plt.close()
