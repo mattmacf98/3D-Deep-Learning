@@ -82,7 +82,7 @@ image_ref = image_ref.cpu().numpy()
 
 # plot images
 plt.figure(figsize=(10, 10))
-plt.imshow(silhouette.squeeze()[..., 3]) # only plot alpha channel
+plt.imshow(silhouette.squeeze()[..., 3])  # only plot alpha channel
 plt.grid(False)
 plt.savefig(os.path.join(output_dir, 'target_silhouette.png'))
 plt.close()
@@ -106,10 +106,12 @@ class Model(nn.Module):
         image_ref = torch.from_numpy((image_ref[..., :3].max(-1) != 1).astype(np.float32))
         self.register_buffer('image_ref', image_ref)
 
-        self.camera_position = nn.Parameter(torch.from_numpy(np.array([3.0, 6.9, 2.5], dtype=np.float32)).to(meshes.device))
+        self.camera_position = nn.Parameter(
+            torch.from_numpy(np.array([3.0, 6.9, 2.5], dtype=np.float32)).to(meshes.device))
 
     def forward(self):
-        R, T = look_at_view_transform(self.camera_position[0], self.camera_position[1], self.camera_position[2], device=device)
+        R = look_at_rotation(self.camera_position[None, :], device=self.device)
+        T = -torch.bmm(R.transpose(1, 2), self.camera_position[None, :, None])[:, :, 0]  # (1, 3)
         image = self.renderer(meshes_world=self.meshes.clone(), R=R, T=T)
         loss = torch.sum((image[..., 3] - self.image_ref) ** 2)
         return loss, image
@@ -121,10 +123,27 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
 # plot starting image
 _, image_init = model()
 plt.figure(figsize=(10, 10))
-plt.imshow(image_init.detach().squeeze().cpu().numpy()[..., 3]) # only plot alpha channel
+plt.imshow(image_init.detach().squeeze().cpu().numpy()[..., 3])  # only plot alpha channel
 plt.grid(False)
 plt.savefig(os.path.join(output_dir, 'starting_silhouette.png'))
 plt.close()
+
+
+def print_current_rgb(name, model, i):
+    R = look_at_rotation(model.camera_position[None, :], device=model.device)
+    T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]  # (1, 3)
+    image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
+    image = image[0, ..., :3].detach().squeeze().cpu().numpy()
+    image = img_as_ubyte(image)
+
+    plt.figure()
+    plt.imshow(image[..., :3])
+    plt.title("iter: %d, loss %0.2f (x=%0.2f, y=%0.2f, z=%0.2f)" % (
+        i, loss.data, model.camera_position[0], model.camera_position[1], model.camera_position[2]))
+    plt.axis("off")
+    plt.savefig(os.path.join(output_dir, name))
+    plt.close()
+
 
 # train
 for i in range(0, 200):
@@ -135,17 +154,8 @@ for i in range(0, 200):
     optimizer.step()
 
     if loss.item() < 500:
+        print_current_rgb(f'fitting_{i}.png', model, i)
         break
 
     if i % 10 == 0:
-        R, T = look_at_view_transform(model.camera_position[0], model.camera_position[1], model.camera_position[2], device=device)
-        image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
-        image = image[0, ..., :3].detach().squeeze().cpu().numpy()
-        image = img_as_ubyte(image)
-
-        plt.figure()
-        plt.imshow(image[..., :3])
-        plt.title("iter: %d, loss %0.2f (dist=%0.2f, elev=%0.2f, azim=%0.2f)" % (i, loss.data, model.camera_position[0], model.camera_position[1], model.camera_position[2]))
-        plt.axis("off")
-        plt.savefig(os.path.join(output_dir, f'fitting_{i}.png'))
-        plt.close()
+        print_current_rgb(f'fitting_{i}.png', model, i)
