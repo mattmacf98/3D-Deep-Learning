@@ -123,9 +123,10 @@ class Model(nn.Module):
         return loss, image_silhouette, image_textured
 
 
+# apparently having any weights on the texture makes the model shit to train
 model = Model(meshes=cow_mesh, renderer_silhouette=render_silhouette, renderer_textured=render_textured,
-              image_ref=image_ref, weight_silhouette=1.0, weight_texture=0.1).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.5)
+              image_ref=image_ref, weight_silhouette=1.0, weight_texture=0.0).to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
 
 
 def print_current_rgb(name, model, i):
