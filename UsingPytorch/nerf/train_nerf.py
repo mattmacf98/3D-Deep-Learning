@@ -17,7 +17,7 @@ from utils.generate_cow_renders import generate_cow_renders
 target_cameras, target_images, target_silhouettes = generate_cow_renders(num_views=40, azimuth_range=180)
 print(f'Generated {len(target_cameras)} images/silhouettes/cameras')
 
-render_size = target_images.shape[1] * 2  # why double?
+render_size = target_images.shape[1]
 volume_extent_world = 3.0
 
 # random point sampler for training
@@ -84,12 +84,12 @@ for iteration in range(n_iter):
     )
 
     rendered_images_silhouettes, sampled_rays = renderer_mc(cameras=batch_cameras, volumetric_function=neural_radiance_field)
-    rendered_images, rendered_silhouettes = (rendered_images_silhouettes.split([3, 1], dim=1))
+    rendered_images, rendered_silhouettes = (rendered_images_silhouettes.split([3, 1], dim=-1))
 
-    silhouettes_at_rays = sample_images_at_mc_locs(target_images=target_silhouettes[batch_idx, ..., None], sampled_rays_xy=sampled_rays)
+    silhouettes_at_rays = sample_images_at_mc_locs(target_images=target_silhouettes[batch_idx, ..., None], sampled_rays_xy=sampled_rays.xys)
     sil_err = huber(rendered_silhouettes, silhouettes_at_rays).abs().mean()
 
-    colors_at_rays = sample_images_at_mc_locs(target_images=target_images[batch_idx, ..., None], sampled_rays_xy=sampled_rays)
+    colors_at_rays = sample_images_at_mc_locs(target_images=target_images[batch_idx], sampled_rays_xy=sampled_rays.xys)
     color_err = huber(rendered_images, colors_at_rays).abs().mean()
 
     loss = sil_err + color_err
@@ -100,6 +100,7 @@ for iteration in range(n_iter):
     optimizer.step()
 
     if iteration % 100 == 0:
+        print(f'iteration = {iteration}')
         show_idx = torch.randperm(len(target_cameras))[:1]
         fig = show_full_render(
             neural_radiance_field=neural_radiance_field,
@@ -112,7 +113,7 @@ for iteration in range(n_iter):
                 fov=target_cameras.fov[show_idx],
                 device=device
             ),
-            target_image=target_cameras[show_idx][0],
+            target_image=target_images[show_idx][0],
             target_silhouette=target_silhouettes[show_idx][0],
             renderer_grid=renderer_grid,
             loss_history_color=loss_history_color,
